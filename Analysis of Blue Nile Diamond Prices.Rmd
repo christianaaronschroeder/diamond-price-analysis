@@ -1,0 +1,305 @@
+---
+title: "Project 1: Analysis of Blue Nile Diamond Prices"
+author: "Timothy Tyree (twt6xy), Christian Schroeder (dbn5eu), Abhishek Bada (rpy2zk)"
+date: "04/02/2021"
+output:
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
+library(knitr) # kable
+library(dplyr)
+library(ggplot2)
+library(data.table)
+library(GGally)
+
+diamonds <- read.table("diamonds4.csv", header=TRUE, sep=",")
+attach(diamonds)
+```
+
+### THE DATA
+
+##### Cut
+
+-   Astor Ideal: Precise proportions, polish, symmetry, reflects most light. Less than 1% of worlds diamonds. Most likely an outlier.\
+-   Ideal: Highest cut grade. Many instances of this. Probably combine astor with ideal.\
+-   Very Good: Very slight difference from ideal.\
+-   Good: Quality at a lower price than a very good cut but still producing a beautiful diamond for the budget minded. Not many in dataset.
+
+##### Color
+
+-   D: Highest colorless grade, exceptionally rare.\
+-   E: Second highest colorless grade, traces of color difficult for even trained eye to see.\
+-   F: Still a colorless grade but a trained gemologist can detect some color.\
+-   G: The highest "near-colorless" grade. Color may be detectable when compared to much higher colorless grades.\
+-   H: "near-colorless" grade, color only noticeable when compared to much higher color grades\
+-   I: Color only slightly detectable upon close examination\
+-   J: Last of the "near-colorless" grades. color may be slightly detectable to the unaided eye.
+
+##### Clarity
+
+-   FL-IF: Both extremely rare. IF - external blemishes only but internally flawless.\
+
+-   VVS1-VVS2: very, very, slightly included. characteristics miniscule and difficult to see under 10x magnification.\
+
+-   VS1-VS2: Very slightly included, minor inclusions to see at 10x magnification.\
+
+-   S1-S2: slightly included, s2 inclusions may be seen with unaided eye.
+
+-   Confirm that R reads clarity, color and cut as categorical.\
+
+```{r}
+confirmCategoricalVariable <- function(variable){
+  variable <- factor(variable)
+  return(is.factor(variable))
+}
+confirmCategoricalVariable(color)
+confirmCategoricalVariable(clarity)
+confirmCategoricalVariable(cut)
+```
+
+###### a. Which predictors appear to be linearly related to the price of a diamond?
+
+```{r}
+ggpairs(diamonds, ggplot2::aes(colour=clarity))
+```
+
+-   Both carat and price show an exponential decreasing relationship where perhaps a log transformation would be beneficial.\
+-   The different classes within the clarity, cut, and color boxplots have some similarities so there are classes that can be combined.\
+-   Most variables show a linear relationship with price.
+
+### Exploratory Analysis on the numeric variables
+
+-   Let's view the original QQplots compared to a log transformed QQplots for both price and carat.\
+
+```{r}
+par(mfrow=c(1,2))
+qqnorm((price),main="Normal Q-Q Plot of Price");qqline((price))
+qqnorm(log(price),main="Normal Q-Q Plot of log Price");qqline(log(price))
+```
+
+-   We should do a log transformation on price.
+
+```{r}
+par(mfrow=c(1,2))
+qqnorm((carat),main="Normal Q-Q Plot of Carat");qqline((carat))
+qqnorm(log(carat),main="Normal Q-Q Plot of log Carat");qqline(log(carat))
+```
+
+-   We should also do a log transformation on carat.
+
+### Exploratory analysis on the categorical variables
+
+-   Exploratory data analysis to see if every class is necessary within the categorical variables.
+
+-   Compare the influence of each categorical variable to determine which one is most beneficial to the model\
+
+-   Comparing the categorical variables to the price, I will create a histogram of for each variable across the price and see whether some of the classes are similar to one another, which would indicate that we can merge them into one group.\
+
+-   Create a graph with average price for each type of clarity, cut, and color.
+
+```{r}
+full <- lm(price~carat)
+redcut <- lm(price~carat+cut)
+redclar <- lm(price~carat+clarity)
+redcol <- lm(price~carat+color)
+
+anova(redcut,full)
+anova(redclar,full)
+anova(redcol,full)
+```
+
+-   We see that clarity has the most benefit, then color, then cut.
+
+```{r}
+
+color_classes <- diamonds %>% group_by(color) %>% summarize(mean_price = round(mean(price), 2))
+ggplot(color_classes, aes(x=color, y=mean_price, fill=color)) +
+  geom_bar(stat = "identity",
+            width = 0.5) +
+  geom_text(aes(label = mean_price),
+            hjust = .5,
+            color = "white",
+            size = 3) +    
+  theme_classic()
+```
+
+-   D-E-F: Nearly Colorless\
+-   G-H-I-J: Near Colorless\
+-   Maybe group them together in these categories, but there are some anomalies. Specifically, why is the mean price of H so high compared to F, when H is not in the colorless category?\
+
+```{r}
+cut_classes <- diamonds %>% group_by(cut) %>% summarize(mean_price = round(mean(price), 2))
+ggplot(cut_classes, aes(x=cut, y=mean_price, fill=cut)) +
+  geom_bar(stat = "identity",
+            width = 0.5) +
+  geom_text(aes(label = mean_price),
+            hjust = .5,
+            color = "white",
+            size = 3) +    
+  theme_classic()
+```
+
+-   We may be able to group ideal and good into two categories.\
+
+```{r}
+clarity_classes <- diamonds %>% group_by(clarity) %>% summarize(mean_price = round(mean(price), 2))
+ggplot(clarity_classes, aes(x=clarity, y=mean_price, fill=clarity)) +
+  geom_bar(stat = "identity",
+            width = 0.5) +
+  geom_text(aes(label = mean_price),
+            hjust = .5,
+            color = "white",
+            size = 3) +    
+  theme_classic()
+```
+
+-   FL: Flawless\
+-   IF: Internally Flawless\
+-   VVS1, VVS2: Very Very Slightly Included\
+-   VS1, VS2: Very Slightly Included\
+-   S1, S2: Slightly Included
+
+##### Fitting the first models
+
+-   Now, I'm going to fit a multiple linear regression model untransformed, and another transformed.
+
+```{r}
+mlr_unfiltered_untransformed <- lm(price~carat+clarity+color+cut)
+summary(mlr_unfiltered_untransformed)
+```
+
+-   The original untransformed model summary tells us that it is significant at predicting the price, but we can do better.\
+-   Transformed model ..
+
+```{r}
+mlr_unfiltered_transformed <- lm(log(price)~ log(carat)+cut+color+clarity)
+summary(mlr_unfiltered_transformed)
+```
+
+-   Much better, could the data be overfitting though?
+
+##### Combining classes within the categorical variables
+
+-   How will it look if I stick with the original data and combine the categorical classes by their respective grades?
+
+```{r}
+#if (!require("data.table")) install.packages("data.table")
+library(data.table)
+diamonds_grouped <- data.table(diamonds) %>%
+  .[color == "D", color := "C"] %>%
+  .[color == "E", color := "C"] %>%
+  .[color == "F", color := "C"] %>%
+  .[color == "G", color := "NC"] %>%
+  .[color == "H", color := "NC"] %>%
+  .[color == "I", color := "NC"] %>%
+  .[color == "J", color := "NC"] %>%
+  .[clarity == "SI1", clarity := "SI"] %>%
+  .[clarity == "SI2", clarity := "SI"] %>%
+  .[clarity == "VS1", clarity := "VS"] %>%
+  .[clarity == "VS2", clarity := "VS"] %>%
+  .[clarity == "VVS1", clarity := "VVS"] %>%
+  .[clarity == "VVS2", clarity := "VVS"] %>%
+  .[clarity == "IF", clarity := "F"] %>%
+  .[clarity == "FL", clarity := "F"] %>%
+  .[cut == "Astor Ideal", cut := "Ideal"] %>%
+  .[cut == "Very Good", cut := "Good"]
+
+```
+
+-   Visualizing the categorical variables classes compared to the mean price again.
+
+```{r}
+clarity_classes_grouped <- diamonds_grouped %>% group_by(clarity) %>% summarize(mean_price = round(mean(price), 2))
+ggplot(clarity_classes_grouped, aes(x=clarity, y=mean_price, fill=clarity)) +
+  geom_bar(stat = "identity",
+            width = 0.5) +
+  geom_text(aes(label = mean_price),
+            hjust = .5,
+            color = "white",
+            size = 3) +    
+  theme_classic()
+```
+
+-   VS and VVS can be combined.
+
+```{r}
+cut_classes_grouped <- diamonds_grouped %>% group_by(cut) %>% summarize(mean_price = round(mean(price), 2))
+ggplot(cut_classes_grouped, aes(x=cut, y=mean_price, fill=cut)) +
+  geom_bar(stat = "identity",
+            width = 0.5) +
+  geom_text(aes(label = mean_price),
+            hjust = .5,
+            color = "white",
+            size = 3) +    
+  theme_classic()
+```
+
+-   Looks good.
+
+```{r}
+color_classes_grouped <- diamonds_grouped %>% group_by(color) %>% summarize(mean_price = round(mean(price), 2))
+ggplot(color_classes_grouped, aes(x=color, y=mean_price, fill=color)) +
+  geom_bar(stat = "identity",
+            width = 0.5) +
+  geom_text(aes(label = mean_price),
+            hjust = .5,
+            color = "white",
+            size = 3) +    
+  theme_classic()
+```
+
+-   Looks good.
+
+-   Combining VVS and VS.\
+
+```{r}
+diamonds_grouped <- data.table(diamonds_grouped) %>%
+  .[clarity == "VVS", clarity := "VS"]
+```
+
+##### Building the final model
+
+-   Now a model for the grouped categorical variables with price and carat transformed.
+
+```{r}
+attach(diamonds_grouped)
+mlr_grouped_transformed <- lm(log(price)~ log(carat)+cut+color+clarity)
+summary(mlr_grouped_transformed)
+```
+
+-   The $R^2$ slightly went down but that may be a good thing and prevent us from overfitting our model.
+
+##### Linearity assumptions
+
+-   Testing the linear assumptions of our model.\
+-   Residual Plot\
+
+```{r}
+plot(x=mlr_grouped_transformed$fitted.values, y=mlr_grouped_transformed$residuals,
+     xlab="Fitted values", ylab="Residuals",
+     panel.last = abline(h=0, lty=2))
+```
+
+-   No obvious curve present.\
+
+-   Nice vertical spread and the mean seems close to 0.
+
+-   ACF Plot
+
+```{r}
+acf(mlr_grouped_transformed$residuals, main="ACF of Residuals")
+```
+
+-   All of the lags are within the boundaries which tells us we do not have a multicollinearity problem.
+
+-   Normal Probability/QQ Plot of Residuals.\
+
+```{r}
+qqnorm(mlr_grouped_transformed$residuals)
+qqline(mlr_grouped_transformed$residuals, col="red")
+```
+
+-   Follows the regression line. It's safe to say that our linearity assumptions are met.
